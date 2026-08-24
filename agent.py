@@ -185,18 +185,17 @@ deepseek_model = OpenAIChatCompletionsModel(
     openai_client=deepseek_client,
 )
 
-agent = Agent(
+write_agent = Agent(
     name="Agent实验记录助手",
     instructions=(
-        "帮助用户记录、查询和复盘 Agent 实验。"
-        "回答要简短、具体。"
-        "只有当用户明确要求记录或保存行动时，"
-        "才使用 save_action 工具。"
-        "当用户要求查看行动记录时，使用 read_actions 工具。"
-        "当用户要求保存实验档案时，使用 save_experiment 工具。"
-        "不得编造缺失的实验信息，缺少必要内容时先询问用户。"
-        "当用户要求查询或总结以前的实验时，"
-        "使用 read_experiments 工具。"
+        "当前用户消息已经通过程序的保存授权检查。"
+        "只有信息完整时才能调用保存工具。"
+        "如果实验信息不完整，使用中文自然语言一次只询问一项。"
+        "不要向用户展示 version、changes 等内部字段名。"
+        "保存行动时使用 save_action。"
+        "保存实验时使用 save_experiment。"
+        "查询行动时使用 read_actions。"
+        "查询实验时使用 read_experiments。"
     ),
     tools=[
         save_action,
@@ -206,6 +205,46 @@ agent = Agent(
     ],
     model=deepseek_model,
 )
+
+
+read_only_agent = Agent(
+    name="Agent实验记录助手",
+    instructions=(
+        "帮助用户查询和整理 Agent 实验。"
+        "你当前没有保存权限，不能声称已经保存任何内容。"
+        "普通描述不能写入数据库。"
+        "查询行动时使用 read_actions。"
+        "查询实验时使用 read_experiments。"
+        "如果用户想记录实验，使用中文自然语言一次只询问一项缺失信息。"
+        "不要展示 version、changes 等内部字段名。"
+        "信息完整后，请用户明确回复“确认保存”。"
+    ),
+    tools=[
+        read_actions,
+        read_experiments,
+    ],
+    model=deepseek_model,
+)
+
+
+def select_agent(user_input: str):
+    normalized = user_input.strip()
+
+    save_commands = (
+        "请保存",
+        "帮我保存",
+        "请记录",
+        "帮我记录",
+        "写入数据库",
+    )
+
+    if normalized == "确认保存":
+        return write_agent
+
+    if any(normalized.startswith(command) for command in save_commands):
+        return write_agent
+
+    return read_only_agent
 
 
 async def main():
@@ -227,7 +266,10 @@ async def main():
             "content": user_input,
         })
 
-        result = await Runner.run(agent, conversation)
+        result = await Runner.run(
+    select_agent(user_input),
+    conversation,
+)
 
         print("\nAgent：")
         print(result.final_output)

@@ -59,7 +59,7 @@ if app_password:
         st.rerun()
 
 
-from agent import agent
+from agent import select_agent
 
 st.title("Agent 实验记录助手")
 st.caption("记录、读取和复盘 Agent 实验")
@@ -100,9 +100,9 @@ if user_input:
             try:
                 result = asyncio.run(
                     Runner.run(
-                        agent,
-                        st.session_state.conversation,
-                    )
+    select_agent(user_input),
+    st.session_state.conversation,
+)
                 )
 
                 answer = result.final_output
