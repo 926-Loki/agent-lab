@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import os
 
 import streamlit as st
@@ -10,12 +11,48 @@ st.set_page_config(
     page_icon="🧪",
 )
 
-if "DEEPSEEK_API_KEY" not in os.environ:
+
+def get_secret(name: str):
+    if name in os.environ:
+        return os.environ[name]
+
     try:
-        os.environ["DEEPSEEK_API_KEY"] = st.secrets["DEEPSEEK_API_KEY"]
+        return st.secrets[name]
     except Exception:
-        st.error("尚未配置 DeepSeek API 密钥。")
+        return None
+
+
+deepseek_key = get_secret("DEEPSEEK_API_KEY")
+
+if not deepseek_key:
+    st.error("尚未配置 DeepSeek API 密钥。")
+    st.stop()
+
+os.environ["DEEPSEEK_API_KEY"] = deepseek_key
+
+app_password = get_secret("APP_PASSWORD")
+
+if app_password:
+    if not st.session_state.get("authenticated", False):
+        st.title("Agent 实验记录助手")
+        password_input = st.text_input(
+            "请输入访问密码",
+            type="password",
+        )
+
+        if st.button("进入"):
+            if hmac.compare_digest(password_input, app_password):
+                st.session_state.authenticated = True
+                st.rerun()
+            else:
+                st.error("密码错误。")
+
         st.stop()
+
+    if st.sidebar.button("退出登录"):
+        st.session_state.authenticated = False
+        st.rerun()
+
 
 from agent import agent
 
