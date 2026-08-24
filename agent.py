@@ -150,7 +150,13 @@ def read_experiments() -> str:
         )
 
         rows = response.data or []
-
+        
+        rows = [
+            row
+            for row in rows
+            if (row.get("content") or {}).get("status") != "invalid"
+        ]
+        
         if not rows:
             return "目前还没有保存实验档案。"
 
