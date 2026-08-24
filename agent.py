@@ -105,12 +105,21 @@ def save_experiment(
     }
 
     if database:
-        database.table("agent_records").insert({
-            "record_type": "experiment",
-            "content": experiment,
-        }).execute()
+        try:
+            database.table("agent_records").insert({
+                "record_type": "experiment",
+                "content": experiment,
+            }).execute()
 
-        return f"云端实验记录已保存：{version}"
+            return f"云端实验记录已保存：{version}"
+
+        except Exception as error:
+            error_text = str(error).lower()
+
+            if "23505" in error_text or "duplicate" in error_text:
+                return f"版本 {version} 已经存在，本次没有重复保存。"
+
+            raise
 
     record_time = datetime.now().strftime("%Y-%m-%d %H:%M")
 
@@ -128,8 +137,6 @@ def save_experiment(
         file.write(entry)
 
     return f"本地实验记录已保存：{version}"
-
-
 @function_tool
 def read_experiments() -> str:
     """读取以前保存的 Agent 实验档案。"""
