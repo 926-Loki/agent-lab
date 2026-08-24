@@ -29,7 +29,12 @@ if not deepseek_key:
     st.stop()
 
 os.environ["DEEPSEEK_API_KEY"] = deepseek_key
+supabase_url = get_secret("SUPABASE_URL")
+supabase_key = get_secret("SUPABASE_KEY")
 
+if supabase_url and supabase_key:
+    os.environ["SUPABASE_URL"] = supabase_url
+    os.environ["SUPABASE_KEY"] = supabase_key
 app_password = get_secret("APP_PASSWORD")
 
 if app_password:

@@ -10,30 +10,80 @@ from agents import (
     OpenAIChatCompletionsModel,
     set_tracing_disabled,
 )
+from supabase import Client, create_client
+
 
 set_tracing_disabled(True)
 
+
+def connect_database() -> Client | None:
+    url = os.environ.get("SUPABASE_URL")
+    key = os.environ.get("SUPABASE_KEY")
+
+    if not url or not key:
+        return None
+
+    return create_client(url, key)
+
+
+database = connect_database()
+
+
 @function_tool
 def save_action(action: str) -> str:
-    """把用户确认的下一步行动保存到本地文件。"""
+    """把用户确认的下一步行动保存起来。"""
+    if database:
+        database.table("agent_records").insert({
+            "record_type": "action",
+            "content": {
+                "action": action,
+            },
+        }).execute()
+
+        return f"已保存云端行动：{action}"
+
     with open("actions.txt", "a", encoding="utf-8") as file:
         file.write(action + "\n")
 
-    return f"已保存行动：{action}"
+    return f"已保存在本地：{action}"
+
 
 @function_tool
 def read_actions() -> str:
-    """读取之前保存在本地文件里的行动记录。"""
+    """读取以前保存的行动记录。"""
+    if database:
+        response = (
+            database.table("agent_records")
+            .select("content, created_at")
+            .eq("record_type", "action")
+            .order("created_at")
+            .execute()
+        )
+
+        rows = response.data or []
+
+        if not rows:
+            return "目前还没有保存任何行动。"
+
+        actions = []
+
+        for row in rows:
+            content = row.get("content") or {}
+            action = content.get("action")
+
+            if action:
+                actions.append(f"- {action}")
+
+        return "\n".join(actions)
+
     if not os.path.exists("actions.txt"):
         return "目前还没有保存任何行动。"
 
     with open("actions.txt", "r", encoding="utf-8") as file:
         content = file.read().strip()
 
-    if not content:
-        return "目前还没有保存任何行动。"
+    return content or "目前还没有保存任何行动。"
 
-    return content
 
 @function_tool
 def save_experiment(
@@ -44,7 +94,24 @@ def save_experiment(
     failures: str,
     result: str,
 ) -> str:
-    """把一次完整的 Agent 实验保存到实验日志。"""
+    """把一次完整的 Agent 实验保存起来。"""
+    experiment = {
+        "version": version,
+        "goal": goal,
+        "changes": changes,
+        "human_intervention": human_intervention,
+        "failures": failures,
+        "result": result,
+    }
+
+    if database:
+        database.table("agent_records").insert({
+            "record_type": "experiment",
+            "content": experiment,
+        }).execute()
+
+        return f"云端实验记录已保存：{version}"
+
     record_time = datetime.now().strftime("%Y-%m-%d %H:%M")
 
     entry = (
@@ -60,21 +127,54 @@ def save_experiment(
     with open("lab_log.md", "a", encoding="utf-8") as file:
         file.write(entry)
 
-    return f"实验记录已保存：{version}"
+    return f"本地实验记录已保存：{version}"
+
 
 @function_tool
 def read_experiments() -> str:
-    """读取以前保存在本地的 Agent 实验档案。"""
+    """读取以前保存的 Agent 实验档案。"""
+    if database:
+        response = (
+            database.table("agent_records")
+            .select("content, created_at")
+            .eq("record_type", "experiment")
+            .order("created_at")
+            .execute()
+        )
+
+        rows = response.data or []
+
+        if not rows:
+            return "目前还没有保存实验档案。"
+
+        records = []
+
+        for row in rows:
+            content = row.get("content") or {}
+            created_at = row.get("created_at", "")
+
+            records.append(
+                f"## {created_at} | "
+                f"{content.get('version', '未命名版本')}\n\n"
+                f"- 实验目标：{content.get('goal', '')}\n"
+                f"- 修改内容：{content.get('changes', '')}\n"
+                f"- 人工介入："
+                f"{content.get('human_intervention', '')}\n"
+                f"- 失败与异常：{content.get('failures', '')}\n"
+                f"- 最终结果：{content.get('result', '')}"
+            )
+
+        return "\n\n---\n\n".join(records)
+
     if not os.path.exists("lab_log.md"):
         return "目前还没有保存实验档案。"
 
     with open("lab_log.md", "r", encoding="utf-8") as file:
         content = file.read().strip()
 
-    if not content:
-        return "目前还没有保存实验档案。"
+    return content or "目前还没有保存实验档案。"
 
-    return content
+
 deepseek_client = AsyncOpenAI(
     api_key=os.environ["DEEPSEEK_API_KEY"],
     base_url="https://api.deepseek.com",
@@ -86,23 +186,31 @@ deepseek_model = OpenAIChatCompletionsModel(
 )
 
 agent = Agent(
-    name="行动教练",
+    name="Agent实验记录助手",
     instructions=(
-        "把用户的目标拆成一个现在就能完成的小步骤。"
+        "帮助用户记录、查询和复盘 Agent 实验。"
         "回答要简短、具体。"
-        "只有当用户明确要求记录或保存行动时，才使用 save_action 工具。"
-        "当用户要求查看、回顾或读取行动记录时，使用 read_actions 工具。"
+        "只有当用户明确要求记录或保存行动时，"
+        "才使用 save_action 工具。"
+        "当用户要求查看行动记录时，使用 read_actions 工具。"
         "当用户要求保存实验档案时，使用 save_experiment 工具。"
         "不得编造缺失的实验信息，缺少必要内容时先询问用户。"
-        "当用户要求查询、回顾或总结以前的实验时，使用 read_experiments 工具。"
+        "当用户要求查询或总结以前的实验时，"
+        "使用 read_experiments 工具。"
     ),
-    tools=[save_action, read_actions, save_experiment, read_experiments],
+    tools=[
+        save_action,
+        read_actions,
+        save_experiment,
+        read_experiments,
+    ],
     model=deepseek_model,
 )
 
+
 async def main():
     conversation = []
-    print("行动教练已启动。输入“退出”即可结束。\n")
+    print("Agent 实验记录助手已启动。输入“退出”即可结束。\n")
 
     while True:
         user_input = input("你：").strip()
@@ -116,7 +224,7 @@ async def main():
 
         conversation.append({
             "role": "user",
-            "content": user_input
+            "content": user_input,
         })
 
         result = await Runner.run(agent, conversation)
@@ -126,6 +234,7 @@ async def main():
         print()
 
         conversation = result.to_input_list()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
