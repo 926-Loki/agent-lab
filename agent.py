@@ -297,20 +297,15 @@ read_only_agent = Agent(
 
 
 def select_agent(user_input: str):
-    normalized = user_input.strip()
+    normalized = user_input.strip().replace(" ", "")
+    normalized = normalized.rstrip("。！!")
 
-    save_commands = (
-        "请保存",
-        "帮我保存",
-        "请记录",
-        "帮我记录",
-        "写入数据库",
-    )
+    confirmation_commands = {
+        "确认保存",
+        "确认写入数据库",
+    }
 
-    if normalized == "确认保存":
-        return write_agent
-
-    if any(normalized.startswith(command) for command in save_commands):
+    if normalized in confirmation_commands:
         return write_agent
 
     return read_only_agent
