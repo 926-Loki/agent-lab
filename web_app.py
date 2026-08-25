@@ -59,16 +59,44 @@ if app_password:
         st.rerun()
 
 
-from agent import select_agent
+from agent import select_agent, database
 
 st.title("Agent 实验记录助手")
 st.caption("记录、读取和复盘 Agent 实验")
 
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+st.sidebar.markdown("### 最近实验档案")
 
-if "conversation" not in st.session_state:
-    st.session_state.conversation = []
+try:
+    if database:
+        response = (
+            database.table("agent_records")
+            .select("content, created_at")
+            .eq("record_type", "experiment")
+            .order("created_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+
+        recent_records = [
+            row
+            for row in (response.data or [])
+            if (row.get("content") or {}).get("status") != "invalid"
+        ]
+
+        if recent_records:
+            for row in recent_records:
+                content = row.get("content") or {}
+                version = content.get("version", "未命名版本")
+
+                with st.sidebar.expander(version):
+                    st.write(content.get("goal", "暂无实验目标"))
+        else:
+            st.sidebar.caption("暂无有效实验档案")
+    else:
+        st.sidebar.caption("数据库未连接")
+
+except Exception:
+    st.sidebar.warning("暂时无法读取实验档案")
 
 if st.sidebar.button("开始新对话"):
     st.session_state.messages = []
