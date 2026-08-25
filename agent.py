@@ -186,6 +186,56 @@ def read_experiments() -> str:
 
     return content or "目前还没有保存实验档案。"
 
+@function_tool
+def update_experiment(
+    version: str,
+    goal: str,
+    changes: str,
+    human_intervention: str,
+    failures: str,
+    result: str,
+) -> str:
+    """根据完整版本号修改一条已有的有效实验记录。"""
+    if not database:
+        return "数据库未连接，无法修改实验记录。"
+
+    response = (
+        database.table("agent_records")
+        .select("id, content")
+        .eq("record_type", "experiment")
+        .eq("content->>version", version)
+        .limit(1)
+        .execute()
+    )
+
+    rows = response.data or []
+
+    if not rows:
+        return f"修改失败：没有找到版本 {version}"
+
+    row = rows[0]
+    current_content = row.get("content") or {}
+
+    if current_content.get("status") == "invalid":
+        return f"修改失败：版本 {version} 已被标记为无效记录"
+
+    updated_content = {
+        **current_content,
+        "version": version,
+        "goal": goal,
+        "changes": changes,
+        "human_intervention": human_intervention,
+        "failures": failures,
+        "result": result,
+    }
+
+    database.table("agent_records").update(
+        {"content": updated_content}
+    ).eq("id", row["id"]).execute()
+
+    return f"实验记录修改成功：{version}"
+
+
 
 @function_tool
 def read_experiment_by_version(version: str) -> str:
@@ -259,12 +309,14 @@ write_agent = Agent(
         "查询行动时使用 read_actions。"
         "查询实验时使用 read_experiments。"
         "用户指定完整版本号时，优先使用 read_experiment_by_version 精确查询。"
+       "用户要求修改已有实验时，先精确读取原记录，展示修改后的完整草稿，并要求用户单独回复“确认修改”；未收到确认修改时不得声称已经修改。"
     ),
     tools=[
         save_action,
         read_actions,
         save_experiment,
         read_experiments,
+        update_experiment,
     ],
     model=deepseek_model,
 )
@@ -303,6 +355,7 @@ def select_agent(user_input: str):
     confirmation_commands = {
         "确认保存",
         "确认写入数据库",
+        "确认修改",
     }
 
     if normalized in confirmation_commands:

@@ -13,6 +13,8 @@ test_cases = [
     ("确认保存", write_agent),
     ("确认保存。", write_agent),
     ("确认写入数据库", write_agent),
+    ("确认修改", write_agent),
+    ("请修改这条记录", read_only_agent),
 ]
 
 
