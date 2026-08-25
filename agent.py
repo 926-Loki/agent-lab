@@ -139,7 +139,7 @@ def save_experiment(
     return f"本地实验记录已保存：{version}"
 @function_tool
 def read_experiments() -> str:
-    """读取以前保存的 Agent 实验档案。"""
+    """读取以前保存的所有有效 Agent 实验档案。"""
     if database:
         response = (
             database.table("agent_records")
@@ -150,15 +150,15 @@ def read_experiments() -> str:
         )
 
         rows = response.data or []
-        
+
         rows = [
             row
             for row in rows
             if (row.get("content") or {}).get("status") != "invalid"
         ]
-        
+
         if not rows:
-            return "目前还没有保存实验档案。"
+            return "目前还没有保存有效实验档案。"
 
         records = []
 
@@ -171,8 +171,7 @@ def read_experiments() -> str:
                 f"{content.get('version', '未命名版本')}\n\n"
                 f"- 实验目标：{content.get('goal', '')}\n"
                 f"- 修改内容：{content.get('changes', '')}\n"
-                f"- 人工介入："
-                f"{content.get('human_intervention', '')}\n"
+                f"- 人工介入：{content.get('human_intervention', '')}\n"
                 f"- 失败与异常：{content.get('failures', '')}\n"
                 f"- 最终结果：{content.get('result', '')}"
             )
@@ -187,6 +186,55 @@ def read_experiments() -> str:
 
     return content or "目前还没有保存实验档案。"
 
+
+@function_tool
+def read_experiment_by_version(version: str) -> str:
+    """根据完整版本号读取一条有效实验记录。"""
+    if database:
+        response = (
+            database.table("agent_records")
+            .select("content, created_at")
+            .eq("record_type", "experiment")
+            .eq("content->>version", version)
+            .limit(1)
+            .execute()
+        )
+
+        rows = response.data or []
+
+        rows = [
+            row
+            for row in rows
+            if (row.get("content") or {}).get("status") != "invalid"
+        ]
+
+        if not rows:
+            return f"没有找到有效版本：{version}"
+
+        row = rows[0]
+        content = row.get("content") or {}
+        created_at = row.get("created_at", "")
+
+        return (
+            f"版本：{content.get('version', '')}\n"
+            f"记录时间：{created_at}\n"
+            f"实验目标：{content.get('goal', '')}\n"
+            f"修改内容：{content.get('changes', '')}\n"
+            f"人工介入：{content.get('human_intervention', '')}\n"
+            f"失败与异常：{content.get('failures', '')}\n"
+            f"最终结果：{content.get('result', '')}"
+        )
+
+    if not os.path.exists("lab_log.md"):
+        return f"没有找到有效版本：{version}"
+
+    with open("lab_log.md", "r", encoding="utf-8") as file:
+        content = file.read()
+
+    if version not in content:
+        return f"没有找到有效版本：{version}"
+
+    return content
 
 deepseek_client = AsyncOpenAI(
     api_key=os.environ["DEEPSEEK_API_KEY"],
@@ -210,6 +258,7 @@ write_agent = Agent(
         "保存实验时使用 save_experiment。"
         "查询行动时使用 read_actions。"
         "查询实验时使用 read_experiments。"
+        "用户指定完整版本号时，优先使用 read_experiment_by_version 精确查询。"
     ),
     tools=[
         save_action,
@@ -235,10 +284,13 @@ read_only_agent = Agent(
         "每次只询问一个问题，使用自然中文，不显示英文参数名。"
         "全部收集完成后先复述整理结果，"
         "再要求用户明确回复“确认保存”。"
+        "用户指定完整版本号时，优先使用 read_experiment_by_version 精确查询。"
     ),
     tools=[
         read_actions,
         read_experiments,
+        read_experiment_by_version,
+        read_experiment_by_version,
     ],
     model=deepseek_model,
 )
