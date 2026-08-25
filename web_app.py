@@ -98,6 +98,13 @@ try:
 except Exception:
     st.sidebar.warning("暂时无法读取实验档案")
 
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+if "conversation" not in st.session_state:
+    st.session_state.conversation = []
+
+
 if st.sidebar.button("开始新对话"):
     st.session_state.messages = []
     st.session_state.conversation = []
